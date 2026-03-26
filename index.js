@@ -9,11 +9,39 @@ app.use(express.urlencoded({ extended: false }));
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
 
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
+// ── Claude chat endpoint ──────────────────────────────────────
+app.post('/chat', async (req, res) => {
+  const { system, messages, max_tokens } = req.body;
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: max_tokens || 1000,
+        system,
+        messages
+      })
+    });
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Twilio call endpoint ──────────────────────────────────────
 app.post('/call-turf', async (req, res) => {
   const { turfName, turfPhone, bookingDetails } = req.body;
   const { date, time, duration, players } = bookingDetails;
@@ -31,13 +59,13 @@ app.post('/call-turf', async (req, res) => {
         </Say>
       </Response>`
     });
-
     res.json({ success: true, callSid: call.sid });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// ── Call status endpoint ──────────────────────────────────────
 app.get('/call-status/:callSid', async (req, res) => {
   try {
     const call = await twilioClient.calls(req.params.callSid).fetch();
